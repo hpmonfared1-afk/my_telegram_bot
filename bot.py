@@ -7,7 +7,8 @@ from datetime import datetime, timedelta
 import threading
 import time
 import requests
-import re
+import hashlib
+import string
 
 # ========== توکن ==========
 TOKEN = os.environ.get('BOT_TOKEN')
@@ -17,7 +18,7 @@ if not TOKEN:
 bot = telebot.TeleBot(TOKEN)
 
 # ========== دیتابیس ==========
-DATA_FILE = 'group_bot_data.json'
+DATA_FILE = 'advanced_bot_data.json'
 
 def load_data():
     if os.path.exists(DATA_FILE):
@@ -25,13 +26,32 @@ def load_data():
             return json.load(f)
     return {
         'users': [],
-        'admins': [],
+        'admins': [8481909076],
         'banned_users': [],
         'muted_users': {},
         'warnings': {},
-        'scheduled_messages': [],
+        'notes': {},  # جزوات دسته‌بندی شده
+        'note_categories': ['ریاضی', 'فیزیک', 'شیمی', 'برنامه‌نویسی', 'عمومی', 'زبان'],
+        'files': [],
+        'welcome_text': "به گروه خوش آمدی {name} عزیز! 🎉",
         'welcome_gif': None,
-        'welcome_text': "به گروه خوش آمدی {name} عزیز! 🌟\nامیدوارم لحظات خوبی رو اینجا داشته باشی."
+        'rules': "📜 قوانین گروه:\n1️⃣ احترام به همه\n2️⃣ اسپم ممنوع\n3️⃣ جزوات رو در دسته مناسب آپلود کن",
+        'questions': {},
+        'polls': [],
+        'events': [],
+        'birthdays': {},
+        'todo': {},
+        'voice_messages': [],
+        'links': {},
+        'scores': {},
+        'levels': {},
+        'daily_messages': {},
+        'study_time': {},
+        'homeworks': [],
+        'exams': [],
+        'reminders': [],
+        'music_queue': [],
+        'scheduled_messages': []
     }
 
 def save_data(data):
@@ -41,49 +61,61 @@ def save_data(data):
 # ========== تنظیمات ==========
 ADMIN_ID = 8481909076
 ANONYMOUS_ADMIN_ID = 1087968824
-HAMADAN_CITY = "Hamedan"
 
 def is_admin(user_id):
-    return user_id == ADMIN_ID or user_id == ANONYMOUS_ADMIN_ID or user_id in load_data().get('admins', [])
+    data = load_data()
+    return user_id == ADMIN_ID or user_id == ANONYMOUS_ADMIN_ID or user_id in data.get('admins', [])
 
 def is_banned(user_id):
     return user_id in load_data().get('banned_users', [])
 
-def is_muted(user_id, chat_id):
-    data = load_data()
-    muted = data['muted_users'].get(str(chat_id), {})
-    if str(user_id) in muted:
-        if datetime.now() < datetime.fromisoformat(muted[str(user_id)]):
-            return True
-        else:
-            del muted[str(user_id)]
-            save_data(data)
-    return False
-
-# ========== کیبورد اصلی ادمین ==========
-def get_admin_keyboard():
+# ========== کیبورد اصلی ==========
+def get_main_keyboard(user_id):
     keyboard = ReplyKeyboardMarkup(row_width=2, resize_keyboard=True)
-    keyboard.add(
-        KeyboardButton("👑 پنل مدیریت"),
-        KeyboardButton("📚 جزوات"),
-        KeyboardButton("🎵 پخش آهنگ"),
-        KeyboardButton("📅 کلاس‌ها")
-    )
+    
+    # ردیف اول - جزوات
+    keyboard.add(KeyboardButton("📚 کتابخانه جزوات"), KeyboardButton("📤 آپلود جزوه"))
+    keyboard.add(KeyboardButton("🔍 جستجوی جزوه"), KeyboardButton("⭐ جزوه‌های محبوب"))
+    
+    # ردیف دوم - مدیریت و اطلاع‌رسانی
+    keyboard.add(KeyboardButton("📢 اعلان‌ها"), KeyboardButton("📅 تقویم تحصیلی"))
+    keyboard.add(KeyboardButton("✅ تکالیف من"), KeyboardButton("📝 ثبت تکلیف"))
+    
+    # ردیف سوم - سرگرمی و رفاهی
+    keyboard.add(KeyboardButton("🎵 پخش موزیک"), KeyboardButton("🎮 بازی و سرگرمی"))
+    keyboard.add(KeyboardButton("🔮 فال حافظ"), KeyboardButton("🌤 آب و هوا"))
+    
+    # ردیف چهارم - کاربردی
+    keyboard.add(KeyboardButton("📊 کارنامه من"), KeyboardButton("🏆 لیگ برتر"))
+    keyboard.add(KeyboardButton("❓ سوال بپرس"), KeyboardButton("📜 قوانین"))
+    
+    if is_admin(user_id):
+        keyboard.add(KeyboardButton("👑 پنل ادمین"))
+    
     return keyboard
 
-def get_management_keyboard():
+def get_notes_keyboard():
+    keyboard = InlineKeyboardMarkup(row_width=2)
+    data = load_data()
+    for cat in data['note_categories']:
+        count = len(data['notes'].get(cat, []))
+        keyboard.add(InlineKeyboardButton(f"📁 {cat} ({count})", callback_data=f"cat_{cat}"))
+    keyboard.add(InlineKeyboardButton("➕ دسته جدید", callback_data="new_category"))
+    return keyboard
+
+def get_admin_keyboard():
     keyboard = InlineKeyboardMarkup(row_width=2)
     keyboard.add(
-        InlineKeyboardButton("🔇 سکوت", callback_data="mute"),
-        InlineKeyboardButton("🔊 رفع سکوت", callback_data="unmute"),
-        InlineKeyboardButton("🚫 بن", callback_data="ban"),
-        InlineKeyboardButton("✅ آنبن", callback_data="unban"),
-        InlineKeyboardButton("⚠️ اخطار", callback_data="warn"),
-        InlineKeyboardButton("🗑 پاکسازی", callback_data="purge"),
-        InlineKeyboardButton("📝 پیام زمان‌دار", callback_data="schedule"),
-        InlineKeyboardButton("🎉 تنظیم خوش‌آمدگویی", callback_data="set_welcome"),
-        InlineKeyboardButton("📢 ارسال به کانال", callback_data="forward_channel"),
-        InlineKeyboardButton("📊 آمار", callback_data="stats")
+        InlineKeyboardButton("👥 مدیریت کاربران", callback_data="admin_users"),
+        InlineKeyboardButton("📚 مدیریت جزوات", callback_data="admin_notes"),
+        InlineKeyboardButton("📢 اعلان همگانی", callback_data="admin_broadcast"),
+        InlineKeyboardButton("📊 آمار پیشرفته", callback_data="admin_stats"),
+        InlineKeyboardButton("🎉 تنظیم خوش‌آمدگویی", callback_data="admin_welcome"),
+        InlineKeyboardButton("📜 ویرایش قوانین", callback_data="admin_rules"),
+        InlineKeyboardButton("🗑 پاکسازی گروه", callback_data="admin_purge"),
+        InlineKeyboardButton("📅 مدیریت رویدادها", callback_data="admin_events"),
+        InlineKeyboardButton("🎁 هدیه روزانه", callback_data="admin_daily"),
+        InlineKeyboardButton("🔧 تنظیمات", callback_data="admin_settings")
     )
     return keyboard
 
@@ -92,45 +124,869 @@ def get_management_keyboard():
 def start(message):
     user_id = message.from_user.id
     data = load_data()
+    
     if user_id not in data['users']:
         data['users'].append(user_id)
+        data['scores'][str(user_id)] = 0
+        data['levels'][str(user_id)] = 1
+        data['daily_messages'][str(user_id)] = 0
         save_data(data)
+        
+        # خوش‌آمدگویی خصوصی
+        bot.send_message(
+            user_id,
+            f"🎉 سلام {message.from_user.first_name} عزیز!\n\n"
+            f"به ربات پیشرفته گروه دانشجویی خوش اومدی! 🤖\n\n"
+            f"✨ **امکانات ویژه:**\n"
+            f"• 📚 کتابخانه جزوات با دسته‌بندی هوشمند\n"
+            f"• 🎵 پخش موزیک در گروه\n"
+            f"• 📅 برنامه‌ریزی درسی و تکالیف\n"
+            f"• 🏆 سیستم امتیازدهی و سطح‌بندی\n"
+            f"• ❓ پرسش و پاسخ هوشمند\n"
+            f"• 🎮 بازی‌های گروهی\n\n"
+            f"🌟 **امتیاز شروع:** 0\n"
+            f"📊 **سطح:** 1\n\n"
+            f"برای شروع از دکمه‌های پایین استفاده کن! 👇"
+        )
     
     bot.send_message(
         message.chat.id,
-        f"🎉 سلام {message.from_user.first_name}!\n\n"
-        f"به ربات مدیریت گروه خوش اومدی!\n\n"
-        f"✨ **قابلیت‌ها:**\n"
-        f"• 🔇 سکوت با ثانیه\n"
-        f"• 🗑 پاکسازی پیام با تعداد دلخواه\n"
-        f"• 📝 ارسال پیام زمان‌دار به گروه/کانال\n"
-        f"• 🎉 خوش‌آمدگویی با گیف و اسم کاربر\n"
-        f"• 📚 جزوه و فایل\n"
-        f"• 🎵 پخش آهنگ\n"
-        f"• 📅 یادآوری کلاس\n"
-        f"• 🌤 آب و هوای همدان\n\n"
-        f"برای دیدن منوی مدیریت، در گروه `/panel` رو بزن.",
-        reply_markup=get_admin_keyboard() if is_admin(user_id) else None
+        f"به گروه خوش اومدی {message.from_user.first_name}! 🎉",
+        reply_markup=get_main_keyboard(user_id)
     )
 
-# ========== پنل مدیریت ==========
-@bot.message_handler(commands=['panel'])
-def panel(message):
+# ========== 1. بخش جزوات پیشرفته ==========
+@bot.message_handler(func=lambda message: message.text == "📚 کتابخانه جزوات")
+def show_library(message):
+    keyboard = get_notes_keyboard()
+    bot.send_message(
+        message.chat.id,
+        "📚 **کتابخانه جزوات دانشجویی**\n\n"
+        "یک دسته رو انتخاب کن:",
+        reply_markup=keyboard,
+        parse_mode='Markdown'
+    )
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith("cat_"))
+def show_category_notes(call):
+    category = call.data.replace("cat_", "")
+    data = load_data()
+    notes = data['notes'].get(category, [])
+    
+    if not notes:
+        bot.answer_callback_query(call.id, f"هیچ جزوه‌ای در {category} وجود ندارد!")
+        return
+    
+    bot.answer_callback_query(call.id)
+    
+    keyboard = InlineKeyboardMarkup(row_width=1)
+    for i, note in enumerate(notes[-15:]):  # آخرین 15 جزوه
+        keyboard.add(InlineKeyboardButton(
+            f"📄 {note['name'][:40]} (❤️ {note.get('likes', 0)})", 
+            callback_data=f"view_{category}_{i}"
+        ))
+    
+    keyboard.add(InlineKeyboardButton("🔙 بازگشت", callback_data="back_to_categories"))
+    
+    bot.send_message(
+        call.message.chat.id,
+        f"📁 **دسته: {category}**\n📊 تعداد جزوات: {len(notes)}\n\n",
+        reply_markup=keyboard,
+        parse_mode='Markdown'
+    )
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith("view_"))
+def view_note(call):
+    parts = call.data.split("_")
+    category = parts[1]
+    index = int(parts[2])
+    
+    data = load_data()
+    notes = data['notes'].get(category, [])
+    
+    if index >= len(notes):
+        bot.answer_callback_query(call.id, "جزوه یافت نشد!")
+        return
+    
+    note = notes[-(index + 1)]
+    
+    keyboard = InlineKeyboardMarkup(row_width=3)
+    keyboard.add(
+        InlineKeyboardButton("📥 دانلود", callback_data=f"download_{category}_{index}"),
+        InlineKeyboardButton(f"❤️ {note.get('likes', 0)}", callback_data=f"like_{category}_{index}"),
+        InlineKeyboardButton("📤 اشتراک", callback_data=f"share_{category}_{index}")
+    )
+    keyboard.add(InlineKeyboardButton("🔙 بازگشت", callback_data=f"cat_{category}"))
+    
+    bot.send_message(
+        call.message.chat.id,
+        f"📄 **{note['name']}**\n\n"
+        f"📁 دسته: {category}\n"
+        f"👤 آپلودکننده: {note.get('uploader_name', 'ناشناس')}\n"
+        f"📅 تاریخ: {note.get('date', 'نامشخص')}\n"
+        f"❤️ امتیاز: {note.get('likes', 0)}\n"
+        f"📥 دانلود: {note.get('downloads', 0)} بار",
+        reply_markup=keyboard,
+        parse_mode='Markdown'
+    )
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith("download_"))
+def download_note(call):
+    parts = call.data.split("_")
+    category = parts[1]
+    index = int(parts[2])
+    
+    data = load_data()
+    notes = data['notes'].get(category, [])
+    
+    if index >= len(notes):
+        bot.answer_callback_query(call.id, "جزوه یافت نشد!")
+        return
+    
+    note = notes[-(index + 1)]
+    
+    # افزایش آمار دانلود
+    note['downloads'] = note.get('downloads', 0) + 1
+    save_data(data)
+    
+    # افزایش امتیاز کاربر
+    add_score(call.from_user.id, 2, "دانلود جزوه")
+    
+    bot.send_document(call.message.chat.id, note['file_id'])
+    bot.answer_callback_query(call.id, "✅ جزوه ارسال شد! +2 امتیاز")
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith("like_"))
+def like_note(call):
+    parts = call.data.split("_")
+    category = parts[1]
+    index = int(parts[2])
+    
+    data = load_data()
+    notes = data['notes'].get(category, [])
+    
+    if index >= len(notes):
+        bot.answer_callback_query(call.id, "جزوه یافت نشد!")
+        return
+    
+    note = notes[-(index + 1)]
+    note['likes'] = note.get('likes', 0) + 1
+    save_data(data)
+    
+    add_score(call.from_user.id, 1, "امتیاز دادن به جزوه")
+    
+    bot.answer_callback_query(call.id, f"❤️ امتیاز شما ثبت شد! +1 امتیاز")
+
+@bot.callback_query_handler(func=lambda call: call.data == "back_to_categories")
+def back_to_categories(call):
+    bot.edit_message_text(
+        "📚 **کتابخانه جزوات دانشجویی**\n\nیک دسته رو انتخاب کن:",
+        call.message.chat.id,
+        call.message.message_id,
+        reply_markup=get_notes_keyboard(),
+        parse_mode='Markdown'
+    )
+
+@bot.message_handler(func=lambda message: message.text == "📤 آپلود جزوه")
+def upload_note(message):
+    if is_banned(message.from_user.id):
+        bot.reply_to(message, "🚫 شما بن هستید!")
+        return
+    
+    keyboard = InlineKeyboardMarkup(row_width=2)
+    data = load_data()
+    for cat in data['note_categories']:
+        keyboard.add(InlineKeyboardButton(cat, callback_data=f"upload_cat_{cat}"))
+    keyboard.add(InlineKeyboardButton("➕ دسته جدید", callback_data="upload_new_cat"))
+    
+    msg = bot.send_message(
+        message.chat.id,
+        "📤 **آپلود جزوه جدید**\n\n"
+        "اول دسته رو انتخاب کن، بعد فایل رو بفرست:",
+        reply_markup=keyboard
+    )
+    bot.register_next_step_handler(msg, lambda m: None)
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith("upload_cat_"))
+def get_upload_category(call):
+    category = call.data.replace("upload_cat_", "")
+    bot.answer_callback_query(call.id)
+    
+    msg = bot.send_message(
+        call.message.chat.id,
+        f"📤 دسته **{category}** انتخاب شد.\n\n"
+        f"حالا فایل جزوه رو بفرست.\n"
+        f"میتونی PDF، عکس، ورد یا هر فایل دیگه‌ای بفرستی.\n\n"
+        f"برای لغو /cancel"
+    )
+    bot.register_next_step_handler(msg, save_uploaded_note, category)
+
+def save_uploaded_note(message, category):
+    if message.text == "/cancel":
+        bot.reply_to(message, "❌ آپلود لغو شد.")
+        return
+    
+    if not (message.document or message.photo):
+        bot.reply_to(message, "❌ لطفا یک فایل معتبر بفرست!")
+        return
+    
+    file_id = message.document.file_id if message.document else message.photo[-1].file_id
+    file_name = message.document.file_name if message.document else f"image_{datetime.now().strftime('%Y%m%d_%H%M%S')}.jpg"
+    
+    data = load_data()
+    if category not in data['notes']:
+        data['notes'][category] = []
+    
+    data['notes'][category].append({
+        'file_id': file_id,
+        'name': file_name,
+        'uploader': message.from_user.id,
+        'uploader_name': message.from_user.first_name,
+        'date': str(datetime.now()),
+        'likes': 0,
+        'downloads': 0
+    })
+    save_data(data)
+    
+    # افزایش امتیاز برای آپلود جزوه
+    add_score(message.from_user.id, 10, "آپلود جزوه")
+    
+    bot.reply_to(
+        message,
+        f"✅ جزوه «{file_name}» با موفقیت در دسته {category} ذخیره شد!\n"
+        f"🌟 +10 امتیاز دریافت کردی!"
+    )
+
+@bot.message_handler(func=lambda message: message.text == "🔍 جستجوی جزوه")
+def search_note_prompt(message):
+    msg = bot.reply_to(
+        message,
+        "🔍 **جستجوی جزوه**\n\n"
+        "نام درس یا کلمه کلیدی رو وارد کن:"
+    )
+    bot.register_next_step_handler(msg, search_note)
+
+def search_note(message):
+    keyword = message.text.lower()
+    data = load_data()
+    results = []
+    
+    for category, notes in data['notes'].items():
+        for note in notes:
+            if keyword in note['name'].lower() or keyword in category.lower():
+                results.append((category, note))
+    
+    if not results:
+        bot.reply_to(message, f"❌ هیچ نتیجه‌ای برای «{keyword}» پیدا نشد!")
+        return
+    
+    keyboard = InlineKeyboardMarkup(row_width=1)
+    for category, note in results[:10]:
+        keyboard.add(InlineKeyboardButton(
+            f"📚 {category} - {note['name'][:35]}", 
+            callback_data=f"search_result_{category}_{note['file_id']}"
+        ))
+    
+    bot.send_message(
+        message.chat.id,
+        f"🔍 **نتایج جستجو برای «{keyword}»:**\n\n"
+        f"{len(results)} جزوه پیدا شد.",
+        reply_markup=keyboard
+    )
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith("search_result_"))
+def open_search_result(call):
+    parts = call.data.replace("search_result_", "").split("_", 1)
+    category = parts[0]
+    file_id = parts[1]
+    
+    data = load_data()
+    notes = data['notes'].get(category, [])
+    note = next((n for n in notes if n['file_id'] == file_id), None)
+    
+    if note:
+        bot.send_document(call.message.chat.id, file_id)
+        add_score(call.from_user.id, 2, "دانلود جزوه")
+        bot.answer_callback_query(call.id, "✅ جزوه ارسال شد! +2 امتیاز")
+    else:
+        bot.answer_callback_query(call.id, "جزوه یافت نشد!")
+
+# ========== 2. سیستم امتیازدهی و سطح ==========
+def add_score(user_id, points, reason=""):
+    data = load_data()
+    uid = str(user_id)
+    data['scores'][uid] = data['scores'].get(uid, 0) + points
+    data['daily_messages'][uid] = data['daily_messages'].get(uid, 0) + 1
+    
+    # بررسی افزایش سطح
+    old_level = data['levels'].get(uid, 1)
+    new_level = 1 + (data['scores'][uid] // 100)
+    
+    if new_level > old_level:
+        data['levels'][uid] = new_level
+        save_data(data)
+        
+        # پیام تبریک برای افزایش سطح
+        try:
+            bot.send_message(
+                user_id,
+                f"🎉 **تبریک! سطح شما افزایش یافت!** 🎉\n\n"
+                f"سطح {old_level} → {new_level}\n"
+                f"🌟 امتیاز کل: {data['scores'][uid]}\n\n"
+                f"به سطح {new_level} خوش اومدی! 🚀"
+            )
+        except:
+            pass
+    else:
+        save_data(data)
+    
+    return points
+
+@bot.message_handler(func=lambda message: message.text == "📊 کارنامه من")
+def show_my_stats(message):
+    data = load_data()
+    uid = str(message.from_user.id)
+    
+    score = data['scores'].get(uid, 0)
+    level = data['levels'].get(uid, 1)
+    daily = data['daily_messages'].get(uid, 0)
+    
+    # محاسبه امتیاز تا سطح بعدی
+    next_level_score = level * 100
+    remain = next_level_score - score
+    progress = int((score / next_level_score) * 100) if next_level_score > 0 else 0
+    
+    progress_bar = "█" * (progress // 5) + "░" * (20 - (progress // 5))
+    
+    # آمار مشارکت
+    total_notes = sum(len(n) for n in data['notes'].values())
+    user_notes = sum(1 for cat in data['notes'].values() for n in cat if n.get('uploader') == message.from_user.id)
+    
+    bot.send_message(
+        message.chat.id,
+        f"📊 **کارنامه تحصیلی**\n\n"
+        f"👤 کاربر: {message.from_user.first_name}\n\n"
+        f"🌟 **امتیاز کل:** {score}\n"
+        f"📊 **سطح:** {level}\n"
+        f"📈 **پیشرفت به سطح بعد:**\n"
+        f"`{progress_bar}` {progress}%\n"
+        f"🔜 امتیاز نیاز: {remain}\n\n"
+        f"📚 **جزوه‌های آپلود شده:** {user_notes}\n"
+        f"💬 **پیام‌های امروز:** {daily}\n"
+        f"📥 **کل جزوات گروه:** {total_notes}\n\n"
+        f"✨ با فعالیت بیشتر، امتیاز بیشتری دریافت کن!",
+        parse_mode='Markdown'
+    )
+
+@bot.message_handler(func=lambda message: message.text == "🏆 لیگ برتر")
+def show_leaderboard(message):
+    data = load_data()
+    scores = data['scores']
+    
+    if not scores:
+        bot.reply_to(message, "📊 هنوز امتیازی ثبت نشده!")
+        return
+    
+    # مرتب‌سازی بر اساس امتیاز
+    sorted_scores = sorted(scores.items(), key=lambda x: x[1], reverse=True)[:10]
+    
+    leaderboard = "🏆 **لیگ برتر دانشجویان** 🏆\n\n"
+    
+    for i, (uid, score) in enumerate(sorted_scores, 1):
+        level = data['levels'].get(uid, 1)
+        # دریافت نام کاربر (اگر در گروه نباشه، آیدی نشون داده میشه)
+        name = f"کاربر {uid[:6]}"
+        try:
+            chat = bot.get_chat(int(uid))
+            name = chat.first_name or f"کاربر {uid[:6]}"
+        except:
+            pass
+        
+        medal = "🥇" if i == 1 else "🥈" if i == 2 else "🥉" if i == 3 else "📌"
+        leaderboard += f"{medal} **{i}.** {name[:20]}\n"
+        leaderboard += f"   🌟 {score} امتیاز | 📊 سطح {level}\n\n"
+    
+    # امتیاز خود کاربر
+    uid = str(message.from_user.id)
+    user_score = scores.get(uid, 0)
+    user_rank = sorted([(k, v) for k, v in scores.items()], key=lambda x: x[1], reverse=True)
+    rank = next((i+1 for i, (k, v) in enumerate(user_rank) if k == uid), None)
+    
+    if rank:
+        leaderboard += f"\n🎯 **رتبه شما:** {rank} از {len(scores)} نفر\n"
+        leaderboard += f"🌟 **امتیاز شما:** {user_score}\n"
+    
+    bot.send_message(message.chat.id, leaderboard, parse_mode='Markdown')
+
+# ========== 3. بخش پرسش و پاسخ هوشمند ==========
+@bot.message_handler(func=lambda message: message.text == "❓ سوال بپرس")
+def ask_question_prompt(message):
+    msg = bot.reply_to(
+        message,
+        "❓ **پرسش و پاسخ هوشمند**\n\n"
+        "سوال خودت رو بپرس.\n\n"
+        "مثال:\n"
+        "• `آزمون ریاضی کی هست؟`\n"
+        "• `جزوه فیزیک کجاست؟`\n"
+        "• `تکلیف برنامه‌نویسی چیه؟`\n\n"
+        "برای لغو /cancel"
+    )
+    bot.register_next_step_handler(msg, answer_question)
+
+def answer_question(message):
+    if message.text == "/cancel":
+        bot.reply_to(message, "❌ لغو شد.")
+        return
+    
+    question = message.text.lower()
+    data = load_data()
+    
+    # پاسخ‌های هوشمند
+    responses = {
+        'امتحان': "📅 لیست امتحانات رو با دکمه 📅 تقویم تحصیلی می‌تونی ببینی!",
+        'جزوه': "📚 جزوه‌ها توی کتابخانه جزوات هستن. از دکمه 📚 کتابخانه جزوات استفاده کن!",
+        'تکلیف': "✅ تکالیف خودت رو می‌تونی با دکمه 📝 ثبت تکلیف اضافه کنی و با ✅ تکالیف من ببینی!",
+        'کلاس': "📅 برای مشاهده و ثبت کلاس‌ها از بخش 📅 تقویم تحصیلی استفاده کن!",
+        'امتیاز': "🌟 امتیاز خودت رو با دکمه 📊 کارنامه من می‌تونی ببینی!",
+        'لول': "📊 سطح و امتیازت توی 📊 کارنامه من هست!",
+        'فال': "🔮 برای فال حافظ از دکمه 🔮 فال حافظ استفاده کن!",
+        'موزیک': "🎵 برای پخش موزیک از دکمه 🎵 پخش موزیک استفاده کن!"
+    }
+    
+    # پیدا کردن پاسخ مناسب
+    answer = None
+    for key, resp in responses.items():
+        if key in question:
+            answer = resp
+            break
+    
+    if not answer:
+        answer = "❓ سوال خوبی پرسیدی!\n\n"
+        answer += "💡 **پیشنهادات:**\n"
+        answer += "• سوال خودت رو دقیق‌تر بپرس\n"
+        answer += "• از ادمین گروه بپرس\n"
+        answer += "• توی گروه مطرح کن تا بقیه کمک کنن\n\n"
+        answer += "🔍 همچنین می‌تونی با دکمه 🔍 جستجوی جزوه، جزوه مورد نظرتو پیدا کنی!"
+    
+    bot.reply_to(message, answer)
+    add_score(message.from_user.id, 1, "پرسش سوال")
+
+# ========== 4. بخش تکالیف و برنامه ریزی ==========
+@bot.message_handler(func=lambda message: message.text == "📝 ثبت تکلیف")
+def add_homework_prompt(message):
+    if is_banned(message.from_user.id):
+        bot.reply_to(message, "🚫 شما بن هستید!")
+        return
+    
+    msg = bot.reply_to(
+        message,
+        "📝 **ثبت تکلیف جدید**\n\n"
+        "فرمت ارسال:\n"
+        "`نام درس|توضیح تکلیف|ددلاین`\n\n"
+        "مثال:\n"
+        "`ریاضی|حل تمرین‌های صفحه ۲۰|1403/04/15`\n\n"
+        "برای لغو /cancel"
+    )
+    bot.register_next_step_handler(msg, save_homework)
+
+def save_homework(message):
+    if message.text == "/cancel":
+        bot.reply_to(message, "❌ لغو شد.")
+        return
+    
+    try:
+        parts = message.text.split('|')
+        if len(parts) >= 2:
+            subject = parts[0]
+            description = parts[1]
+            deadline = parts[2] if len(parts) > 2 else "نامشخص"
+            
+            data = load_data()
+            data['homeworks'].append({
+                'user_id': message.from_user.id,
+                'subject': subject,
+                'description': description,
+                'deadline': deadline,
+                'date': str(datetime.now()),
+                'status': 'pending'
+            })
+            save_data(data)
+            
+            add_score(message.from_user.id, 3, "ثبت تکلیف")
+            
+            bot.reply_to(
+                message,
+                f"✅ تکلیف ثبت شد!\n\n"
+                f"📚 درس: {subject}\n"
+                f"📝 توضیح: {description}\n"
+                f"⏰ ددلاین: {deadline}\n\n"
+                f"🌟 +3 امتیاز!"
+            )
+        else:
+            raise ValueError
+    except:
+        bot.reply_to(message, "❌ فرمت اشتباه! استفاده: `درس|توضیح|ددلاین`")
+
+@bot.message_handler(func=lambda message: message.text == "✅ تکالیف من")
+def show_homeworks(message):
+    data = load_data()
+    user_homeworks = [h for h in data['homeworks'] if h['user_id'] == message.from_user.id]
+    
+    if not user_homeworks:
+        bot.reply_to(message, "✅ هیچ تکلیفی ثبت نکردی!\nاز دکمه 📝 ثبت تکلیف استفاده کن.")
+        return
+    
+    text = "✅ **لیست تکالیف شما**\n\n"
+    for i, h in enumerate(reversed(user_homeworks[-10:]), 1):
+        status = "✅ انجام شده" if h.get('status') == 'done' else "⏳ در حال انجام"
+        text += f"{i}. **{h['subject']}**\n"
+        text += f"   📝 {h['description'][:50]}\n"
+        text += f"   ⏰ ددلاین: {h['deadline']}\n"
+        text += f"   📊 وضعیت: {status}\n\n"
+    
+    bot.send_message(message.chat.id, text, parse_mode='Markdown')
+
+@bot.message_handler(func=lambda message: message.text == "📅 تقویم تحصیلی")
+def show_calendar(message):
+    data = load_data()
+    
+    keyboard = InlineKeyboardMarkup(row_width=2)
+    keyboard.add(
+        InlineKeyboardButton("📝 تکالیف همه", callback_data="all_homeworks"),
+        InlineKeyboardButton("📆 امتحانات", callback_data="all_exams"),
+        InlineKeyboardButton("🎉 رویدادها", callback_data="all_events"),
+        InlineKeyboardButton("➕ اضافه کردن", callback_data="add_calendar")
+    )
+    
+    bot.send_message(
+        message.chat.id,
+        "📅 **تقویم تحصیلی گروه**\n\n"
+        "از دکمه‌های زیر استفاده کن:",
+        reply_markup=keyboard
+    )
+
+@bot.callback_query_handler(func=lambda call: call.data == "all_homeworks")
+def show_all_homeworks(call):
+    data = load_data()
+    homeworks = data['homeworks']
+    
+    if not homeworks:
+        bot.answer_callback_query(call.id, "هیچ تکلیفی ثبت نشده!")
+        return
+    
+    text = "📝 **تکالیف ثبت شده گروه**\n\n"
+    for i, h in enumerate(reversed(homeworks[-15:]), 1):
+        text += f"{i}. **{h['subject']}** - {h['description'][:40]}\n"
+        text += f"   ⏰ {h['deadline']}\n\n"
+    
+    bot.send_message(call.message.chat.id, text, parse_mode='Markdown')
+    bot.answer_callback_query(call.id)
+
+@bot.callback_query_handler(func=lambda call: call.data == "all_exams")
+def show_all_exams(call):
+    data = load_data()
+    exams = data.get('exams', [])
+    
+    if not exams:
+        bot.send_message(call.message.chat.id, "📆 هیچ امتحانی ثبت نشده!")
+        bot.answer_callback_query(call.id)
+        return
+    
+    text = "📆 **تقویم امتحانات**\n\n"
+    for i, e in enumerate(reversed(exams[-15:]), 1):
+        text += f"{i}. {e['subject']}\n"
+        text += f"   📅 {e['date']}\n"
+        text += f"   📝 {e.get('description', '')}\n\n"
+    
+    bot.send_message(call.message.chat.id, text, parse_mode='Markdown')
+    bot.answer_callback_query(call.id)
+
+# ========== 5. بخش سرگرمی ==========
+@bot.message_handler(func=lambda message: message.text == "🎮 بازی و سرگرمی")
+def games_menu(message):
+    keyboard = InlineKeyboardMarkup(row_width=2)
+    keyboard.add(
+        InlineKeyboardButton("🎲 تاس بینداز", callback_data="game_dice"),
+        InlineKeyboardButton("🎯 حدس عدد", callback_data="game_number"),
+        InlineKeyboardButton("📝 مسابقه", callback_data="game_quiz"),
+        InlineKeyboardButton("🎰 ماشین شانس", callback_data="game_slot")
+    )
+    
+    bot.send_message(
+        message.chat.id,
+        "🎮 **بازی و سرگرمی**\n\n"
+        "یک بازی رو انتخاب کن و امتیاز جمع کن! 🎁",
+        reply_markup=keyboard
+    )
+
+@bot.callback_query_handler(func=lambda call: call.data == "game_dice")
+def play_dice(call):
+    dice = random.randint(1, 6)
+    points = dice * 2
+    add_score(call.from_user.id, points, "بازی تاس")
+    
+    bot.send_dice(call.message.chat.id, emoji="🎲")
+    bot.send_message(
+        call.message.chat.id,
+        f"🎲 عدد {dice} اومد!\n🌟 {points} امتیاز گرفتی!",
+        reply_to_message_id=call.message.message_id + 1
+    )
+    bot.answer_callback_query(call.id)
+
+@bot.callback_query_handler(func=lambda call: call.data == "game_number")
+def play_number_game(call):
+    number = random.randint(1, 100)
+    bot.answer_callback_query(call.id)
+    
+    msg = bot.send_message(
+        call.message.chat.id,
+        f"🎯 **حدس عدد بین 1 تا 100**\n\n"
+        f"من یه عدد انتخاب کردم، حدس بزن!\n"
+        f"(۳ تا شانس داری)\n\n"
+        f"عددت رو بفرست:"
+    )
+    bot.register_next_step_handler(msg, check_number_guess, number, 3)
+
+def check_number_guess(message, target, attempts):
+    try:
+        guess = int(message.text)
+        
+        if guess == target:
+            points = 20
+            add_score(message.from_user.id, points, "برنده بازی حدس عدد")
+            bot.reply_to(message, f"🎉 تبریک! درست حدس زدی! عدد {target} بود.\n🌟 {points} امتیاز گرفتی!")
+        elif attempts > 1:
+            hint = "بزرگ‌تر" if guess < target else "کوچک‌تر"
+            bot.reply_to(message, f"❌ نه! عدد {hint} از {guess} هست.\n🔁 {attempts-1} شانس دیگه داری!")
+            msg = bot.send_message(message.chat.id, "عدد بعدی رو بفرست:")
+            bot.register_next_step_handler(msg, check_number_guess, target, attempts-1)
+        else:
+            bot.reply_to(message, f"😔 بازی تموم شد! عدد {target} بود.\n💪 دفعه بعد حتما میبری!")
+    except:
+        bot.reply_to(message, "❌ لطفا یه عدد معتبر بفرست!")
+
+@bot.callback_query_handler(func=lambda call: call.data == "game_quiz")
+def play_quiz(call):
+    quizzes = [
+        {"q": "Python کی ساخته شد؟", "a": "1991", "options": ["1989", "1991", "1995", "2000"]},
+        {"q": "تلگرام چند کاربر فعال دارد؟", "a": "800M", "options": ["500M", "700M", "800M", "1B"]},
+        {"q": "کدام زبان برای AI بهتر است؟", "a": "Python", "options": ["Java", "C++", "Python", "JavaScript"]}
+    ]
+    
+    quiz = random.choice(quizzes)
+    keyboard = InlineKeyboardMarkup(row_width=2)
+    for opt in quiz['options']:
+        keyboard.add(InlineKeyboardButton(opt, callback_data=f"quiz_{quiz['q']}_{opt}_{quiz['a']}"))
+    
+    bot.send_message(call.message.chat.id, f"❓ {quiz['q']}", reply_markup=keyboard)
+    bot.answer_callback_query(call.id)
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith("quiz_"))
+def check_quiz(call):
+    parts = call.data.split("_")
+    answer = parts[-1]
+    correct = parts[-2]
+    
+    if answer == correct:
+        points = 15
+        add_score(call.from_user.id, points, "برنده مسابقه")
+        bot.edit_message_text(
+            f"✅ پاسخ صحیح! +{points} امتیاز",
+            call.message.chat.id,
+            call.message.message_id
+        )
+    else:
+        bot.edit_message_text(
+            f"❌ پاسخ اشتباه! پاسخ صحیح: {correct}",
+            call.message.chat.id,
+            call.message.message_id
+        )
+    bot.answer_callback_query(call.id)
+
+@bot.callback_query_handler(func=lambda call: call.data == "game_slot")
+def play_slot(call):
+    slots = ["🍒", "🍊", "🍋", "🍉", "⭐", "7️⃣"]
+    result = [random.choice(slots) for _ in range(3)]
+    
+    points = 0
+    if result[0] == result[1] == result[2]:
+        points = 50
+        msg = "🎉 **جکپات!** 🎉"
+    elif result[0] == result[1] or result[1] == result[2] or result[0] == result[2]:
+        points = 10
+        msg = "🎈 بردی!"
+    else:
+        msg = "😔 بازنده شدی!"
+    
+    add_score(call.from_user.id, points, "بازی ماشین شانس")
+    
+    bot.send_message(
+        call.message.chat.id,
+        f"🎰 **ماشین شانس**\n\n"
+        f"`{result[0]} | {result[1]} | {result[2]}`\n\n"
+        f"{msg} 🌟 +{points} امتیاز"
+    )
+    bot.answer_callback_query(call.id)
+
+# ========== 6. پخش موزیک ساده ==========
+@bot.message_handler(func=lambda message: message.text == "🎵 پخش موزیک")
+def play_music_simple(message):
+    keyboard = InlineKeyboardMarkup(row_width=2)
+    keyboard.add(
+        InlineKeyboardButton("🎵 آرامش بخش", callback_data="play_relax"),
+        InlineKeyboardButton("🎸 پرانرژی", callback_data="play_energy"),
+        InlineKeyboardButton("🎹 کلاسیک", callback_data="play_classic"),
+        InlineKeyboardButton("⏹ توقف", callback_data="stop_music")
+    )
+    
+    bot.send_message(
+        message.chat.id,
+        "🎵 **پخش موزیک در گروه**\n\n"
+        "یک سبک رو انتخاب کن:",
+        reply_markup=keyboard
+    )
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith("play_"))
+def play_music(call):
+    style = call.data.replace("play_", "")
+    music_files = {
+        "relax": "CQACAgQAAxkBAA...",  # آیدی فایل موزیک رو اینجا بذار
+        "energy": "CQACAgQAAxkBAA...",
+        "classic": "CQACAgQAAxkBAA..."
+    }
+    
+    bot.answer_callback_query(call.id, f"🎵 در حال پخش موزیک {style}...")
+    # برای پخش واقعی نیاز به file_id موزیک داری
+    bot.send_message(call.message.chat.id, f"🎵 موزیک {style} در حال پخش... (برای توقف دکمه رو بزن)")
+
+@bot.callback_query_handler(func=lambda call: call.data == "stop_music")
+def stop_music(call):
+    bot.answer_callback_query(call.id, "⏹ پخش متوقف شد!")
+    bot.send_message(call.message.chat.id, "⏹ پخش موزیک متوقف شد.")
+
+# ========== 7. فال حافظ ==========
+@bot.message_handler(func=lambda message: message.text == "🔮 فال حافظ")
+def fortune(message):
+    fortunes = [
+        {"verse": "صبا به لطف بگو آن غزال رعنا را", "meaning": "به زودی خبرهای خوبی می‌رسی. صبور باش."},
+        {"verse": "در این زمانه رفیقی که خالی از خلل است", "meaning": "به دوستان واقعی خود اعتماد کن."},
+        {"verse": "ساقیا برخیز و درده جام را", "meaning": "زندگی رو ساده بگیر و از لحظه لذت ببر."},
+        {"verse": "اگر آن ترک شیرازی به دست آرد دل ما را", "meaning": "عشق و علاقه جدیدی وارد زندگیت می‌شه."},
+        {"verse": "حافظا روزی تو را در کنج رندی خواهند یافت", "meaning": "مسیر درست رو پیدا می‌کنی."}
+    ]
+    
+    fortune = random.choice(fortunes)
+    text = f"🍃 **فال حافظ** 🍃\n\n"
+    text += f"📜 {fortune['verse']}\n\n"
+    text += f"✨ **تعبیر:**\n{fortune['meaning']}\n\n"
+    text += f"🌸 روزت پر از آرامش 🌸"
+    
+    bot.send_message(message.chat.id, text, parse_mode='Markdown')
+    add_score(message.from_user.id, 1, "فال حافظ")
+
+# ========== 8. آب و هوا ==========
+@bot.message_handler(func=lambda message: message.text == "🌤 آب و هوا")
+def weather(message):
+    cities = {
+        "همدان": "Hamedan",
+        "تهران": "Tehran",
+        "اصفهان": "Esfahan",
+        "مشهد": "Mashhad"
+    }
+    
+    keyboard = InlineKeyboardMarkup(row_width=2)
+    for city in cities.keys():
+        keyboard.add(InlineKeyboardButton(city, callback_data=f"weather_{cities[city]}"))
+    
+    bot.send_message(message.chat.id, "🌤 آب و هوای کدوم شهر رو می‌خوای؟", reply_markup=keyboard)
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith("weather_"))
+def send_weather(call):
+    city = call.data.replace("weather_", "")
+    
+    try:
+        response = requests.get(f"https://wttr.in/{city}?format=%C+%t+%w+%h&lang=fa")
+        weather_data = response.text.strip()
+        
+        bot.send_message(
+            call.message.chat.id,
+            f"🌤 **آب و هوای {city}**\n\n{weather_data}\n\n📅 {datetime.now().strftime('%Y/%m/%d %H:%M')}"
+        )
+        add_score(call.from_user.id, 1, "استعلام آب و هوا")
+    except:
+        bot.send_message(call.message.chat.id, f"❌ خطا در دریافت آب و هوای {city}!")
+    
+    bot.answer_callback_query(call.id)
+
+# ========== 9. قوانین ==========
+@bot.message_handler(func=lambda message: message.text == "📜 قوانین")
+def show_rules(message):
+    data = load_data()
+    rules = data.get('rules', "📜 قوانین گروه:\n1️⃣ احترام به همه\n2️⃣ اسپم ممنوع")
+    
+    keyboard = InlineKeyboardMarkup()
+    if is_admin(message.from_user.id):
+        keyboard.add(InlineKeyboardButton("✏️ ویرایش قوانین", callback_data="edit_rules"))
+    
+    bot.send_message(message.chat.id, rules, reply_markup=keyboard)
+
+# ========== 10. اعلان‌ها ==========
+@bot.message_handler(func=lambda message: message.text == "📢 اعلان‌ها")
+def show_announcements(message):
+    data = load_data()
+    events = data.get('events', [])
+    
+    if not events:
+        bot.reply_to(message, "📢 هیچ اعلان جدیدی وجود ندارد!")
+        return
+    
+    text = "📢 **آخرین اعلان‌ها**\n\n"
+    for event in reversed(events[-5:]):
+        text += f"• {event['title']}\n"
+        text += f"  📅 {event['date']}\n"
+        text += f"  📝 {event['description'][:100]}\n\n"
+    
+    bot.send_message(message.chat.id, text, parse_mode='Markdown')
+
+# ========== 11. پنل ادمین ==========
+@bot.message_handler(func=lambda message: message.text == "👑 پنل ادمین")
+def admin_panel(message):
     if not is_admin(message.from_user.id):
         bot.reply_to(message, "⛔ فقط ادمین دسترسی داره!")
         return
     
     bot.send_message(
         message.chat.id,
-        "👑 **پنل مدیریت گروه**\n\n"
+        "👑 **پنل مدیریت پیشرفته**\n\n"
         "از دکمه‌های زیر استفاده کن:",
-        reply_markup=get_management_keyboard(),
-        parse_mode='Markdown'
+        reply_markup=get_admin_keyboard()
     )
 
-# ========== 1. سکوت (با ثانیه) ==========
-@bot.callback_query_handler(func=lambda call: call.data == "mute")
-def mute_prompt(call):
+@bot.callback_query_handler(func=lambda call: call.data == "admin_stats")
+def admin_stats(call):
+    if not is_admin(call.from_user.id):
+        bot.answer_callback_query(call.id, "⛔ فقط ادمین!", show_alert=True)
+        return
+    
+    data = load_data()
+    total_notes = sum(len(n) for n in data['notes'].values())
+    total_scores = sum(data['scores'].values())
+    
+    stats = (
+        f"📊 **آمار پیشرفته گروه**\n\n"
+        f"👥 کاربران: {len(data['users'])}\n"
+        f"📚 جزوات: {total_notes}\n"
+        f"📝 تکالیف: {len(data['homeworks'])}\n"
+        f"🎯 امتیاز کل: {total_scores}\n"
+        f"🏆 میانگین امتیاز: {total_scores // max(1, len(data['users']))}\n"
+        f"🚫 کاربران بن: {len(data['banned_users'])}\n"
+        f"⚠️ اخطارها: {sum(len(v) for v in data['warnings'].values())}"
+    )
+    
+    bot.send_message(call.message.chat.id, stats, parse_mode='Markdown')
+    bot.answer_callback_query(call.id)
+
+@bot.callback_query_handler(func=lambda call: call.data == "admin_broadcast")
+def broadcast_prompt(call):
     if not is_admin(call.from_user.id):
         bot.answer_callback_query(call.id, "⛔ فقط ادمین!", show_alert=True)
         return
@@ -138,350 +994,55 @@ def mute_prompt(call):
     bot.answer_callback_query(call.id)
     msg = bot.send_message(
         call.message.chat.id,
-        "🔇 **سکوت کاربر**\n\n"
-        "فرمت مورد نظر:\n"
-        "`@username ثانیه`\n"
-        "یا\n"
-        "`آیدی عددی ثانیه`\n\n"
-        "مثال: `@ali 60` (یعنی 60 ثانیه)\n"
-        "مثال: `123456789 120` (یعنی 2 دقیقه)\n\n"
-        "برای لغو /cancel",
-        parse_mode='Markdown'
+        "📢 **ارسال اعلان همگانی**\n\n"
+        "متن پیام رو بفرست.\n"
+        "میتونی متن، عکس یا فایل بفرستی.\n\n"
+        "برای لغو /cancel"
     )
-    bot.register_next_step_handler(msg, process_mute)
+    bot.register_next_step_handler(msg, send_broadcast)
 
-def process_mute(message):
+def send_broadcast(message):
     if message.text == "/cancel":
         bot.reply_to(message, "❌ لغو شد.")
         return
     
-    try:
-        parts = message.text.split()
-        if len(parts) != 2:
-            raise ValueError
-        
-        target = parts[0]
-        seconds = int(parts[1])
-        
-        # پیدا کردن user_id
-        if target.startswith('@'):
-            username = target[1:]
-            try:
-                user = bot.get_chat(username)
-                user_id = user.id
-            except:
-                bot.reply_to(message, "❌ کاربر پیدا نشد!")
-                return
-        else:
-            user_id = int(target)
-        
-        # ذخیره در دیتابیس
-        data = load_data()
-        chat_id = message.chat.id
-        if str(chat_id) not in data['muted_users']:
-            data['muted_users'][str(chat_id)] = {}
-        data['muted_users'][str(chat_id)][str(user_id)] = (datetime.now() + timedelta(seconds=seconds)).isoformat()
-        save_data(data)
-        
-        # اعمال محدودیت در گروه
-        until_date = datetime.now() + timedelta(seconds=seconds)
-        bot.restrict_chat_member(chat_id, user_id, until_date=until_date)
-        
-        bot.reply_to(
-            message,
-            f"✅ کاربر {target} برای {seconds} ثانیه سکوت شد!"
-        )
-    except:
-        bot.reply_to(message, "❌ فرمت اشتباه! استفاده: `@username 60`")
-
-@bot.callback_query_handler(func=lambda call: call.data == "unmute")
-def unmute_prompt(call):
-    if not is_admin(call.from_user.id):
-        bot.answer_callback_query(call.id, "⛔ فقط ادمین!", show_alert=True)
-        return
+    data = load_data()
+    users = data.get('users', [])
+    success = 0
     
-    bot.answer_callback_query(call.id)
-    msg = bot.send_message(
-        call.message.chat.id,
-        "🔊 **رفع سکوت کاربر**\n\n"
-        "آیدی یا یوزرنیم کاربر رو بفرست:\n"
-        "مثال: `@ali` یا `123456789`"
-    )
-    bot.register_next_step_handler(msg, process_unmute)
-
-def process_unmute(message):
-    try:
-        target = message.text
-        
-        if target.startswith('@'):
-            username = target[1:]
-            user = bot.get_chat(username)
-            user_id = user.id
-        else:
-            user_id = int(target)
-        
-        chat_id = message.chat.id
-        bot.restrict_chat_member(chat_id, user_id, can_send_messages=True, can_send_media_messages=True)
-        
-        data = load_data()
-        if str(chat_id) in data['muted_users'] and str(user_id) in data['muted_users'][str(chat_id)]:
-            del data['muted_users'][str(chat_id)][str(user_id)]
-        save_data(data)
-        
-        bot.reply_to(message, f"✅ سکوت کاربر {target} برداشته شد!")
-    except:
-        bot.reply_to(message, "❌ کاربر پیدا نشد!")
-
-# ========== 2. بن ==========
-@bot.callback_query_handler(func=lambda call: call.data == "ban")
-def ban_prompt(call):
-    if not is_admin(call.from_user.id):
-        bot.answer_callback_query(call.id, "⛔ فقط ادمین!", show_alert=True)
-        return
+    status = bot.reply_to(message, "⏳ در حال ارسال...")
     
-    bot.answer_callback_query(call.id)
-    msg = bot.send_message(
-        call.message.chat.id,
-        "🚫 **بن کاربر**\n\n"
-        "آیدی یا یوزرنیم کاربر رو بفرست:\n"
-        "مثال: `@ali` یا `123456789`"
-    )
-    bot.register_next_step_handler(msg, process_ban)
-
-def process_ban(message):
-    try:
-        target = message.text
-        
-        if target.startswith('@'):
-            username = target[1:]
-            user = bot.get_chat(username)
-            user_id = user.id
-        else:
-            user_id = int(target)
-        
-        chat_id = message.chat.id
-        bot.ban_chat_member(chat_id, user_id)
-        
-        data = load_data()
-        if user_id not in data['banned_users']:
-            data['banned_users'].append(user_id)
-        save_data(data)
-        
-        bot.reply_to(message, f"✅ کاربر {target} بن شد!")
-    except:
-        bot.reply_to(message, "❌ کاربر پیدا نشد!")
-
-@bot.callback_query_handler(func=lambda call: call.data == "unban")
-def unban_prompt(call):
-    if not is_admin(call.from_user.id):
-        bot.answer_callback_query(call.id, "⛔ فقط ادمین!", show_alert=True)
-        return
+    for user_id in users:
+        try:
+            if message.text:
+                bot.send_message(user_id, f"📢 **اعلان همگانی:**\n\n{message.text}")
+            elif message.photo:
+                bot.send_photo(user_id, message.photo[-1].file_id, caption=message.caption)
+            elif message.document:
+                bot.send_document(user_id, message.document.file_id, caption=message.caption)
+            success += 1
+        except:
+            pass
+        time.sleep(0.05)
     
-    bot.answer_callback_query(call.id)
-    msg = bot.send_message(
-        call.message.chat.id,
-        "✅ **آنبن کاربر**\n\n"
-        "آیدی کاربر رو بفرست:\n"
-        "مثال: `123456789`"
-    )
-    bot.register_next_step_handler(msg, process_unban)
+    bot.edit_message_text(f"✅ اعلان به {success} نفر ارسال شد!", status.chat.id, status.message_id)
 
-def process_unban(message):
-    try:
-        user_id = int(message.text)
-        chat_id = message.chat.id
-        bot.unban_chat_member(chat_id, user_id)
-        
-        data = load_data()
-        if user_id in data['banned_users']:
-            data['banned_users'].remove(user_id)
-        save_data(data)
-        
-        bot.reply_to(message, f"✅ کاربر {user_id} آنبن شد!")
-    except:
-        bot.reply_to(message, "❌ ایدی نامعتبر!")
-
-# ========== 3. اخطار ==========
-@bot.callback_query_handler(func=lambda call: call.data == "warn")
-def warn_prompt(call):
-    if not is_admin(call.from_user.id):
-        bot.answer_callback_query(call.id, "⛔ فقط ادمین!", show_alert=True)
-        return
-    
-    bot.answer_callback_query(call.id)
-    msg = bot.send_message(
-        call.message.chat.id,
-        "⚠️ **اخطار به کاربر**\n\n"
-        "فرمت: `@username دلیل`\n"
-        "مثال: `@ali اسپم`"
-    )
-    bot.register_next_step_handler(msg, process_warn)
-
-def process_warn(message):
-    try:
-        parts = message.text.split(' ', 1)
-        if len(parts) < 2:
-            raise ValueError
-        
-        target = parts[0]
-        reason = parts[1]
-        
-        if target.startswith('@'):
-            username = target[1:]
-            user = bot.get_chat(username)
-            user_id = user.id
-        else:
-            user_id = int(target)
-        
-        data = load_data()
-        if str(user_id) not in data['warnings']:
-            data['warnings'][str(user_id)] = []
-        data['warnings'][str(user_id)].append({
-            'reason': reason,
-            'date': str(datetime.now()),
-            'admin': message.from_user.first_name
-        })
-        
-        warn_count = len(data['warnings'][str(user_id)])
-        save_data(data)
-        
-        if warn_count >= 3:
-            bot.ban_chat_member(message.chat.id, user_id)
-            bot.reply_to(
-                message,
-                f"⚠️ کاربر {target} بعد از {warn_count} اخطار بن شد!\n"
-                f"آخرین دلیل: {reason}"
-            )
-        else:
-            bot.reply_to(
-                message,
-                f"⚠️ اخطار {warn_count}/3 به {target}\n"
-                f"دلیل: {reason}"
-            )
-    except:
-        bot.reply_to(message, "❌ فرمت اشتباه! استفاده: `@username دلیل`")
-
-# ========== 4. پاکسازی پیام ==========
-@bot.callback_query_handler(func=lambda call: call.data == "purge")
-def purge_prompt(call):
-    if not is_admin(call.from_user.id):
-        bot.answer_callback_query(call.id, "⛔ فقط ادمین!", show_alert=True)
-        return
-    
-    bot.answer_callback_query(call.id)
-    msg = bot.send_message(
-        call.message.chat.id,
-        "🗑 **پاکسازی پیام**\n\n"
-        "تعداد پیام‌هایی که می‌خوای پاک بشه رو بفرست:\n"
-        "مثال: `50` (یعنی 50 پیام آخر)\n\n"
-        "حداکثر 100 پیام"
-    )
-    bot.register_next_step_handler(msg, process_purge)
-
-def process_purge(message):
-    try:
-        count = int(message.text)
-        if count > 100:
-            count = 100
-        
-        chat_id = message.chat.id
-        message_id = message.message_id
-        
-        deleted = 0
-        for i in range(count):
-            try:
-                bot.delete_message(chat_id, message_id - i)
-                deleted += 1
-            except:
-                pass
-            time.sleep(0.1)
-        
-        bot.reply_to(message, f"✅ {deleted} پیام پاک شد!")
-    except:
-        bot.reply_to(message, "❌ عدد معتبر وارد کن!")
-
-# ========== 5. پیام زمان‌دار (به گروه/کانال) ==========
-@bot.callback_query_handler(func=lambda call: call.data == "schedule")
-def schedule_prompt(call):
+@bot.callback_query_handler(func=lambda call: call.data == "admin_welcome")
+def admin_welcome(call):
     if not is_admin(call.from_user.id):
         bot.answer_callback_query(call.id, "⛔ فقط ادمین!", show_alert=True)
         return
     
     bot.answer_callback_query(call.id)
     
-    markup = InlineKeyboardMarkup(row_width=2)
-    markup.add(
-        InlineKeyboardButton("📢 گروه فعلی", callback_data="schedule_group"),
-        InlineKeyboardButton("📣 کانال", callback_data="schedule_channel")
-    )
-    bot.send_message(call.message.chat.id, "پیام زمان‌دار برای کجا ارسال بشه؟", reply_markup=markup)
-
-@bot.callback_query_handler(func=lambda call: call.data in ["schedule_group", "schedule_channel"])
-def schedule_destination(call):
-    dest = "group" if call.data == "schedule_group" else "channel"
-    bot.answer_callback_query(call.id)
-    
-    msg = bot.send_message(
-        call.message.chat.id,
-        "📝 **پیام زمان‌دار**\n\n"
-        "اول متن پیام رو بفرست.\n"
-        "بعد از اون، زمان (به دقیقه) رو بفرست."
-    )
-    bot.register_next_step_handler(msg, get_schedule_text, dest)
-
-def get_schedule_text(message, dest):
-    text = message.text
-    msg = bot.reply_to(message, "⏰ چند دقیقه بعد ارسال بشه؟ (عدد وارد کن)")
-    bot.register_next_step_handler(msg, get_schedule_time, dest, text)
-
-def get_schedule_time(message, dest, text):
-    try:
-        minutes = int(message.text)
-        send_time = datetime.now() + timedelta(minutes=minutes)
-        
-        data = load_data()
-        data['scheduled_messages'].append({
-            'text': text,
-            'dest': dest,
-            'dest_id': message.chat.id if dest == 'group' else None,
-            'time': send_time.isoformat()
-        })
-        save_data(data)
-        
-        bot.reply_to(
-            message,
-            f"✅ پیام در {minutes} دقیقه دیگه ارسال میشه!\n"
-            f"مقصد: {'گروه فعلی' if dest == 'group' else 'کانال'}"
-        )
-        
-        # تنظیم تایمر
-        threading.Timer(minutes * 60, send_scheduled_message, args=[text, dest, message.chat.id]).start()
-    except:
-        bot.reply_to(message, "❌ زمان نامعتبر!")
-
-def send_scheduled_message(text, dest, chat_id):
-    if dest == 'group':
-        bot.send_message(chat_id, f"📢 **پیام زمان‌دار:**\n\n{text}", parse_mode='Markdown')
-    else:
-        # برای کانال، باید channel_id رو ذخیره کنی
-        bot.send_message(chat_id, f"📣 **ارسال به کانال:**\n\n{text}", parse_mode='Markdown')
-
-# ========== 6. خوش‌آمدگویی با گیف و اسم ==========
-@bot.callback_query_handler(func=lambda call: call.data == "set_welcome")
-def set_welcome_prompt(call):
-    if not is_admin(call.from_user.id):
-        bot.answer_callback_query(call.id, "⛔ فقط ادمین!", show_alert=True)
-        return
-    
-    bot.answer_callback_query(call.id)
-    
-    markup = InlineKeyboardMarkup(row_width=1)
-    markup.add(
+    keyboard = InlineKeyboardMarkup(row_width=1)
+    keyboard.add(
         InlineKeyboardButton("📝 متن خوش‌آمدگویی", callback_data="set_welcome_text"),
         InlineKeyboardButton("🎬 گیف خوش‌آمدگویی", callback_data="set_welcome_gif"),
         InlineKeyboardButton("❌ غیرفعال", callback_data="disable_welcome")
     )
-    bot.send_message(call.message.chat.id, "🎉 **تنظیمات خوش‌آمدگویی**", reply_markup=markup)
+    
+    bot.send_message(call.message.chat.id, "🎉 **تنظیمات خوش‌آمدگویی**", reply_markup=keyboard)
 
 @bot.callback_query_handler(func=lambda call: call.data == "set_welcome_text")
 def set_welcome_text_prompt(call):
@@ -490,7 +1051,7 @@ def set_welcome_text_prompt(call):
         call.message.chat.id,
         "📝 متن خوش‌آمدگویی رو وارد کن.\n\n"
         "از `{name}` برای اسم کاربر استفاده کن.\n"
-        "مثال: `به گروه خوش اومدی {name} جان!`"
+        "مثال: `به گروه خوش اومدی {name} جان! 🎉`"
     )
     bot.register_next_step_handler(msg, save_welcome_text)
 
@@ -500,36 +1061,75 @@ def save_welcome_text(message):
     save_data(data)
     bot.reply_to(message, "✅ متن خوش‌آمدگویی ذخیره شد!")
 
-@bot.callback_query_handler(func=lambda call: call.data == "set_welcome_gif")
-def set_welcome_gif_prompt(call):
+@bot.callback_query_handler(func=lambda call: call.data == "admin_rules")
+def edit_rules_prompt(call):
+    if not is_admin(call.from_user.id):
+        bot.answer_callback_query(call.id, "⛔ فقط ادمین!", show_alert=True)
+        return
+    
     bot.answer_callback_query(call.id)
     msg = bot.send_message(
         call.message.chat.id,
-        "🎬 گیف خوش‌آمدگویی رو بفرست.\n\n"
-        "یک فایل GIF بفرست."
+        "📜 **ویرایش قوانین گروه**\n\n"
+        "قوانین جدید رو وارد کن.\n\n"
+        "مثال:\n"
+        "1️⃣ احترام به همه\n"
+        "2️⃣ اسپم ممنوع\n"
+        "3️⃣ جزوات رو در دسته مناسب آپلود کن"
     )
-    bot.register_next_step_handler(msg, save_welcome_gif)
+    bot.register_next_step_handler(msg, save_rules)
 
-def save_welcome_gif(message):
-    if message.animation:
-        file_id = message.animation.file_id
-        data = load_data()
-        data['welcome_gif'] = file_id
-        save_data(data)
-        bot.reply_to(message, "✅ گیف خوش‌آمدگویی ذخیره شد!")
-    else:
-        bot.reply_to(message, "❌ لطفا یک فایل GIF بفرست!")
-
-@bot.callback_query_handler(func=lambda call: call.data == "disable_welcome")
-def disable_welcome(call):
-    bot.answer_callback_query(call.id)
+def save_rules(message):
     data = load_data()
-    data['welcome_gif'] = None
-    data['welcome_text'] = None
+    data['rules'] = message.text
     save_data(data)
-    bot.reply_to(call.message, "❌ خوش‌آمدگویی غیرفعال شد!")
+    bot.reply_to(message, "✅ قوانین گروه به‌روزرسانی شد!")
 
-# عضو جدید به گروه اضافه شد
+# ========== اخطار ==========
+@bot.message_handler(commands=['warn'])
+def warn_user(message):
+    if not is_admin(message.from_user.id):
+        bot.reply_to(message, "⛔ فقط ادمین!")
+        return
+    
+    parts = message.text.split(' ', 1)
+    if len(parts) < 2:
+        bot.reply_to(message, "❌ استفاده: `/warn @username دلیل`")
+        return
+    
+    target = parts[0].replace('/warn', '').strip()
+    reason = parts[1]
+    
+    if target.startswith('@'):
+        try:
+            user = bot.get_chat(target)
+            user_id = user.id
+        except:
+            bot.reply_to(message, "❌ کاربر پیدا نشد!")
+            return
+    else:
+        user_id = int(target)
+    
+    data = load_data()
+    if str(user_id) not in data['warnings']:
+        data['warnings'][str(user_id)] = []
+    
+    data['warnings'][str(user_id)].append({
+        'reason': reason,
+        'date': str(datetime.now()),
+        'admin': message.from_user.first_name
+    })
+    
+    warn_count = len(data['warnings'][str(user_id)])
+    save_data(data)
+    
+    if warn_count >= 3:
+        bot.ban_chat_member(message.chat.id, user_id)
+        bot.reply_to(message, f"⚠️ کاربر {target} بعد از {warn_count} اخطار بن شد!\nدلیل: {reason}")
+    else:
+        bot.reply_to(message, f"⚠️ اخطار {warn_count}/3 به {target}\nدلیل: {reason}")
+
+# ========== خوش‌آمدگویی خودکار ==========
 @bot.message_handler(content_types=['new_chat_members'])
 def welcome_new_member(message):
     data = load_data()
@@ -558,202 +1158,63 @@ def welcome_new_member(message):
                 message.chat.id,
                 welcome_text.format(name=name)
             )
-
-# ========== 7. ارسال به کانال ==========
-@bot.callback_query_handler(func=lambda call: call.data == "forward_channel")
-def forward_to_channel_prompt(call):
-    if not is_admin(call.from_user.id):
-        bot.answer_callback_query(call.id, "⛔ فقط ادمین!", show_alert=True)
-        return
-    
-    bot.answer_callback_query(call.id)
-    msg = bot.send_message(
-        call.message.chat.id,
-        "📢 **ارسال به کانال**\n\n"
-        "آیدی کانال رو بفرست (مثل `@my_channel`)\n"
-        "بعد از اون، پیام رو بفرست.\n\n"
-        "برای لغو /cancel"
-    )
-    bot.register_next_step_handler(msg, get_channel_id_for_forward)
-
-def get_channel_id_for_forward(message):
-    if message.text == "/cancel":
-        bot.reply_to(message, "❌ لغو شد.")
-        return
-    
-    channel_id = message.text
-    msg = bot.reply_to(message, f"📝 پیام مورد نظر رو برای ارسال به {channel_id} بفرست:")
-    bot.register_next_step_handler(msg, send_to_channel, channel_id)
-
-def send_to_channel(message, channel_id):
-    try:
-        if message.text:
-            bot.send_message(channel_id, message.text)
-        elif message.photo:
-            bot.send_photo(channel_id, message.photo[-1].file_id, caption=message.caption)
-        elif message.document:
-            bot.send_document(channel_id, message.document.file_id, caption=message.caption)
-        elif message.animation:
-            bot.send_animation(channel_id, message.animation.file_id, caption=message.caption)
         
-        bot.reply_to(message, f"✅ پیام به {channel_id} ارسال شد!")
-    except Exception as e:
-        bot.reply_to(message, f"❌ خطا در ارسال: ربات رو ادمین کانال کن!")
+        add_score(new_member.id, 5, "عضو جدید گروه")
 
-# ========== 8. آب و هوای همدان ==========
-@bot.message_handler(commands=['weather'])
-def weather_hamadan(message):
-    try:
-        # استفاده از API رایگان wttr.in
-        response = requests.get(f"https://wttr.in/{HAMADAN_CITY}?format=%C+%t+%w+%h")
-        weather_data = response.text.strip()
-        
-        if weather_data:
-            bot.reply_to(
-                message,
-                f"🌤 **آب و هوای همدان**\n\n"
-                f"{weather_data}\n\n"
-                f"📅 {datetime.now().strftime('%Y/%m/%d %H:%M')}"
-            )
-        else:
-            bot.reply_to(message, "❌ دریافت آب و هوا انجام نشد!")
-    except:
-        bot.reply_to(message, "❌ خطا در دریافت اطلاعات!")
-
-# ========== 9. کلاس و یادآوری ==========
-@bot.message_handler(commands=['addclass'])
-def add_class(message):
-    if not is_admin(message.from_user.id):
-        bot.reply_to(message, "⛔ فقط ادمین!")
-        return
-    
-    msg = bot.reply_to(
-        message,
-        "📅 **افزودن کلاس جدید**\n\n"
-        "فرمت:\n"
-        "`اسم کلاس|ساعت|دقیقه|تکرار`\n\n"
-        "مثال: `ریاضی|14|30|شنبه`\n"
-        "مثال: `فیزیک|10|0|یکشنبه,سه‌شنبه`"
-    )
-    bot.register_next_step_handler(msg, save_class)
-
-def save_class(message):
-    try:
-        parts = message.text.split('|')
-        if len(parts) >= 3:
-            class_name = parts[0]
-            hour = int(parts[1])
-            minute = int(parts[2])
-            repeat = parts[3] if len(parts) > 3 else "یکبار"
-            
-            data = load_data()
-            if 'classes' not in data:
-                data['classes'] = []
-            data['classes'].append({
-                'name': class_name,
-                'hour': hour,
-                'minute': minute,
-                'repeat': repeat,
-                'chat_id': message.chat.id
-            })
-            save_data(data)
-            
-            bot.reply_to(
-                message,
-                f"✅ کلاس «{class_name}» ذخیره شد!\n"
-                f"⏰ ساعت {hour}:{minute:02d}\n"
-                f"📅 تکرار: {repeat}"
-            )
-            
-            # تنظیم یادآوری برای امروز
-            now = datetime.now()
-            class_time = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
-            if class_time > now:
-                seconds = (class_time - now).seconds
-                threading.Timer(seconds, send_class_reminder, args=[message.chat.id, class_name]).start()
-        else:
-            raise ValueError
-    except:
-        bot.reply_to(message, "❌ فرمت اشتباه! استفاده: `ریاضی|14|30|شنبه`")
-
-@bot.message_handler(commands=['classes'])
-def show_classes(message):
-    data = load_data()
-    classes = data.get('classes', [])
-    
-    if not classes:
-        bot.reply_to(message, "📅 کلاسی ثبت نشده!")
-        return
-    
-    text = "📅 **کلاس‌های ثبت شده:**\n\n"
-    for i, c in enumerate(classes, 1):
-        text += f"{i}. {c['name']} - {c['hour']}:{c['minute']:02d} ({c['repeat']})\n"
-    
-    bot.send_message(message.chat.id, text, parse_mode='Markdown')
-
-def send_class_reminder(chat_id, class_name):
-    bot.send_message(
-        chat_id,
-        f"⏰ **یادآوری کلاس!**\n\n"
-        f"کلاس {class_name} در ۵ دقیقه دیگه شروع میشه!\n"
-        f"آماده باش 📚"
-    )
-
-# ========== 10. حذف پیام خاص ==========
-@bot.message_handler(commands=['del'])
-def delete_specific_message(message):
+# ========== پاکسازی ==========
+@bot.message_handler(commands=['purge'])
+def purge_messages(message):
     if not is_admin(message.from_user.id):
         bot.reply_to(message, "⛔ فقط ادمین!")
         return
     
     parts = message.text.split()
     if len(parts) != 2:
-        bot.reply_to(message, "❌ استفاده: `/del message_id`")
+        bot.reply_to(message, "❌ استفاده: `/purge تعداد`\nمثال: `/purge 50`")
         return
     
     try:
-        msg_id = int(parts[1])
-        bot.delete_message(message.chat.id, msg_id)
-        bot.reply_to(message, f"✅ پیام {msg_id} حذف شد!")
+        count = min(int(parts[1]), 100)
+        chat_id = message.chat.id
+        msg_id = message.message_id
+        
+        deleted = 0
+        for i in range(count):
+            try:
+                bot.delete_message(chat_id, msg_id - i)
+                deleted += 1
+            except:
+                pass
+            time.sleep(0.1)
+        
+        bot.reply_to(message, f"✅ {deleted} پیام پاک شد!")
     except:
-        bot.reply_to(message, "❌ خطا در حذف پیام!")
+        bot.reply_to(message, "❌ عدد معتبر وارد کن!")
 
-# ========== 11. آمار ==========
-@bot.callback_query_handler(func=lambda call: call.data == "stats")
-def show_stats(call):
-    if not is_admin(call.from_user.id):
-        bot.answer_callback_query(call.id, "⛔ فقط ادمین!", show_alert=True)
+# ========== هندلر پیام‌های عادی ==========
+@bot.message_handler(func=lambda message: True)
+def handle_message(message):
+    if is_banned(message.from_user.id):
+        bot.delete_message(message.chat.id, message.message_id)
         return
     
-    bot.answer_callback_query(call.id)
+    # افزایش امتیاز برای فعالیت روزانه
     data = load_data()
+    uid = str(message.from_user.id)
     
-    stats = (
-        f"📊 **آمار گروه**\n\n"
-        f"👥 کاربران: {len(data.get('users', []))}\n"
-        f"🚫 بن شده: {len(data.get('banned_users', []))}\n"
-        f"⚠️ اخطارها: {sum(len(v) for v in data.get('warnings', {}).values())}\n"
-        f"📅 کلاس‌ها: {len(data.get('classes', []))}\n"
-        f"📝 پیام‌های زمان‌دار: {len(data.get('scheduled_messages', []))}"
-    )
-    bot.send_message(call.message.chat.id, stats, parse_mode='Markdown')
-
-# ========== 12. دکمه بستن پنل ==========
-@bot.message_handler(commands=['close'])
-def close_panel(message):
-    bot.reply_to(message, "✅ پنل بسته شد. برای باز کردن /panel")
-
-# ========== 13. فیلتر پیام‌های اسپم ==========
-@bot.message_handler(func=lambda message: True)
-def filter_messages(message):
-    # حذف پیام‌های لینک از کاربران عادی (اختیاری)
-    if not is_admin(message.from_user.id):
-        if 'http://' in message.text or 'https://' in message.text or 't.me/' in message.text:
-            bot.delete_message(message.chat.id, message.message_id)
-            bot.send_message(message.chat.id, f"⛔ {message.from_user.first_name} لینک زدن ممنوع!", delete_in_sec=5)
+    # محدودیت امتیاز روزانه
+    last_msg = data.get('last_message_time', {}).get(uid, 0)
+    now = time.time()
+    
+    if now - last_msg > 60:  # هر 1 دقیقه یک بار امتیاز
+        add_score(message.from_user.id, 1, "فعالیت در گروه")
+        if 'last_message_time' not in data:
+            data['last_message_time'] = {}
+        data['last_message_time'][uid] = now
+        save_data(data)
 
 # ========== اجرا ==========
 if __name__ == "__main__":
-    print("🤖 ربات مدیریت گروه روشن شد!")
-    print("✅ قابلیت‌ها: سکوت با ثانیه | پاکسازی | پیام زماندار | خوش‌آمدگویی | آب و هوا | کلاس")
+    print("🤖 ربات فوق پیشرفته روشن شد!")
+    print("✅ قابلیت‌ها: جزوه | امتیاز | بازی | تکلیف | موزیک | فال | آب و هوا")
     bot.infinity_polling(timeout=80)
