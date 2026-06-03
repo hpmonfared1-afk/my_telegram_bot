@@ -39,7 +39,7 @@ def save_data(data):
         json.dump(data, f, indent=2, ensure_ascii=False)
 
 # ========== تنظیمات ==========
-ADMIN_ID = 123456789  # ایدی خودت رو اینجا بذار!
+ADMIN_ID = 8481909076  # ایدی خودت رو اینجا بذار!
 HAMADAN_CITY = "Hamedan"
 
 def is_admin(user_id):
