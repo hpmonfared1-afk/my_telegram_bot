@@ -39,16 +39,12 @@ def save_data(data):
         json.dump(data, f, indent=2, ensure_ascii=False)
 
 # ========== تنظیمات ==========
- ADMIN_ID = 8481909076
+ADMIN_ID = 8481909076
 ANONYMOUS_ADMIN_ID = 1087968824
-
-def is_admin(user_id):
-    return user_id == ADMIN_ID or user_id == ANONYMOUS_ADMIN_ID or user_id in load_data().get('admins', []) 
-   
 HAMADAN_CITY = "Hamedan"
 
 def is_admin(user_id):
-    return user_id == ADMIN_ID or user_id in load_data().get('admins', [])
+    return user_id == ADMIN_ID or user_id == ANONYMOUS_ADMIN_ID or user_id in load_data().get('admins', [])
 
 def is_banned(user_id):
     return user_id in load_data().get('banned_users', [])
