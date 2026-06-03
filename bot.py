@@ -669,7 +669,8 @@ def play_rps_result(call):
         points = 5
         result = "مساوی"
     elif rules.get((user_choice, bot_choice)) == "win":
-        points = 15        result = "بردی"
+        points = 15     
+        result = "بردی"
     else:
         points = 0
         result = "باختی"
