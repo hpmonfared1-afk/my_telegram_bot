@@ -6,10 +6,6 @@ from datetime import datetime, timedelta
 from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters, ContextTypes
 
-# ========== CONFIG ==========
-BOT_TOKEN = "8708007218:AAEXQZXo_RueI3h5xRR7kc3d5rCpV3jT4Jc"
-OWNER_ID = 8481909076
-ALLOWED_CHATS = [-1002422179029, -1001852418166]
 
 # ========== DATABASE ==========
 class DB:
