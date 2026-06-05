@@ -1,4 +1,4 @@
 pyrogram==2.0.106
-pytgcalls==5.0.0
+pytgcalls==3.0.0
 yt-dlp>=2024.12.13
 requests>=2.31.0
