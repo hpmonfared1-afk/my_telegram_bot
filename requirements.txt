@@ -1,2 +1,4 @@
-Flask
-pyTelegramBotAPI
+pyrogram==2.0.106
+py-tgcalls==5.1.1
+yt-dlp==2024.12.13
+requests==2.31.0
